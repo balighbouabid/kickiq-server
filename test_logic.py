@@ -132,7 +132,8 @@ class StatsV4Test(unittest.TestCase):
                  "isPenalty": True},
             ],
         }
-        self.assertEqual(logic.openliga_events(om), [[12, 0, "Kane", "p"], [40, 1, "Adeyemi", "g"]])
+        self.assertEqual(logic.openliga_events(om), [{"m": 12, "s": 0, "n": "Kane", "t": "p"},
+                                                     {"m": 40, "s": 1, "n": "Adeyemi", "t": "g"}])
         k = logic.openliga_time_ms(om)
         other = {**om, "matchID": 124, "team1": {"teamName": "VfB Stuttgart"}, "team2": {"teamName": "SC Freiburg"}}
         found = logic.match_openliga([(99, k, "FC Bayern München", "Borussia Dortmund"),
@@ -155,6 +156,33 @@ class StatsV4Test(unittest.TestCase):
         self.assertFalse(logic.needs_live_mode([{"s": "NS", "k": 3600_000}], 0))
         self.assertEqual(logic.season_year(date(2026, 10, 30)), 2026)
         self.assertEqual(logic.season_year(date(2027, 3, 1)), 2026)
+
+
+
+class FirestoreShapeTest(unittest.TestCase):
+    """Firestore refuse une liste directement dans une liste : on le vérifie sur tout ce que le serveur écrit."""
+
+    @staticmethod
+    def nested_list(v, in_list=False):
+        if isinstance(v, list):
+            return in_list or any(FirestoreShapeTest.nested_list(x, True) for x in v)
+        if isinstance(v, dict):
+            return any(FirestoreShapeTest.nested_list(x, False) for x in v.values())
+        return False
+
+    def test_no_nested_lists(self):
+        om = {"matchID": 1, "matchDateTimeUTC": "2026-10-24T13:30:00Z", "matchIsFinished": False,
+              "team1": {"teamId": 1, "teamName": "A"}, "team2": {"teamId": 2, "teamName": "B"},
+              "goals": [{"goalID": 1, "scoreTeam1": 1, "scoreTeam2": 0, "matchMinute": 3, "goalGetterName": "X"}]}
+        k = logic.openliga_time_ms(om)
+        fd = {"id": 5, "utcDate": "2026-10-24T13:30:00Z", "status": "IN_PLAY", "competition": {"code": "BL1"},
+              "homeTeam": {"id": 1}, "awayTeam": {"id": 2},
+              "score": {"fullTime": {"home": 0, "away": 0}, "halfTime": {"home": 0, "away": 0}}}
+        docs = [logic.enrich_with_openliga(logic.compact_match(fd), om, k + 60_000),
+                logic.compact_openliga_match(om, "BL2", "2. Bundesliga", k + 60_000),
+                logic.compact_team({"id": 1, "squad": [{"id": 2, "name": "Y"}]}, "PL")]
+        for d in docs:
+            self.assertFalse(self.nested_list(d), d)
 
 
 if __name__ == "__main__":

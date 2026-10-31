@@ -357,7 +357,7 @@ def openliga_time_ms(om):
 
 
 def openliga_events(om):
-    """Buts d'un match OpenLigaDB : [[minute, côté (0 = domicile, 1 = extérieur), buteur, type]]."""
+    """Buts d'un match OpenLigaDB : [{m: minute, s: côté (0 = domicile, 1 = extérieur), n: buteur, t: type}]."""
     goals = sorted(_get(om, "goals", "Goals", default=[]) or [],
                    key=lambda g: (_get(g, "matchMinute", "MatchMinute") or 0, _get(g, "goalID", "GoalID") or 0))
     events, prev = [], (0, 0)
@@ -371,8 +371,9 @@ def openliga_events(om):
             continue
         kind = "og" if _get(g, "isOwnGoal", "IsOwnGoal") else "p" if _get(g, "isPenalty", "IsPenalty") else "g"
         minute = _get(g, "matchMinute", "MatchMinute")
-        events.append([minute if isinstance(minute, int) else None, side,
-                       (_get(g, "goalGetterName", "GoalGetterName") or "?")[:40], kind])
+        # Firestore refuse les listes imbriquées : chaque but est donc une petite fiche.
+        events.append({"m": minute if isinstance(minute, int) else None, "s": side,
+                       "n": (_get(g, "goalGetterName", "GoalGetterName") or "?")[:40], "t": kind})
     return events
 
 
