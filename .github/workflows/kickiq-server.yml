@@ -1,0 +1,58 @@
+# Lance le serveur KickIQ toutes les 5 minutes (gratuit sur un dépôt GitHub public).
+# GitHub peut retarder les tâches planifiées de quelques minutes quand ses serveurs sont chargés.
+name: KickIQ serveur
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}   # bouton « Run workflow » pour un lancement manuel
+
+permissions:
+  contents: write         # uniquement pour le petit fichier « heartbeat » mensuel
+
+concurrency:
+  group: kickiq-server
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Installer les dépendances
+        run: pip install -r server/requirements.txt
+
+      - name: Tests
+        working-directory: server
+        run: python -m unittest test_logic.py
+
+      - name: Lancer le serveur
+        working-directory: server
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # Mode direct : nombre de rafraîchissements d'une minute quand des matchs sont en cours.
+          # Mettez "0" pour des passages courts uniquement (toutes les 5 minutes).
+          LIVE_PASSES: "3"
+        run: python kickiq_server.py
+
+      # GitHub désactive les tâches planifiées d'un dépôt sans activité pendant 60 jours.
+      # Une fois par mois, on met à jour un petit fichier pour garder le dépôt actif.
+      - name: Garder le dépôt actif
+        if: github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%d%H)" = "0100" ]; then
+            date -u > server/heartbeat.txt
+            git config user.name "kickiq-bot"
+            git config user.email "kickiq-bot@users.noreply.github.com"
+            git add server/heartbeat.txt
+            git commit -m "heartbeat" && git push || true
+          fi
